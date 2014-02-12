@@ -1,6 +1,7 @@
 NOTE
 =====================================
-This is a 2-BWT implementation based on FM-Index, based on `High Throughput Short Read Alignment via Bi-directional BWT` (http://www.cs.bgu.ac.il/~dekelts/tsds14/Lam.pdf)
+* This is a 2-BWT implementation based on FM-Index, based on `High Throughput Short Read Alignment via Bi-directional BWT` (http://www.cs.bgu.ac.il/~dekelts/tsds14/Lam.pdf)
+* This implementation uses SDSL data structures.
 
 
 FM-Index - Compressed full-text Index
