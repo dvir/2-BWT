@@ -19,6 +19,8 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <algorithm>
+#include <vector>
 
 #include "FM.h"
 
@@ -135,22 +137,25 @@ int main(int argc, char** argv) {
       }
 
       for(size_t q = 0; q < nqrys; q++) {	
-        size_t results_amount = 0;
-        for (size_t it = 0; it < matching_intervals.size(); ++it) {
-          SA_intervals ivls = matching_intervals[it];
-          result = FMIdx->getLocations(ivls.ivl, &matches);
-          results_amount += matches;
-        }
-
-        fprintf(stdout,"%s (%d) : ", queries[i], results_amount);
+        std::vector<uint32_t> results;
 
         for (size_t it = 0; it < matching_intervals.size(); ++it) {
           SA_intervals ivls = matching_intervals[it];
-
           result = FMIdx->getLocations(ivls.ivl, &matches);
           if (matches) {
-            for(j=0;j<matches;j++) fprintf(stdout,"%d ",result[j]);
+            for (j = 0; j < matches; j++) {
+              results.push_back(result[j]);
+            }
           }
+          free(result);
+        }
+
+        std::sort(results.begin(), results.end());
+
+        fprintf(stdout,"%s (%d) : ", queries[i], results.size());
+
+        for (size_t it = 0; it < results.size(); ++it) {
+          fprintf(stdout, "%d ", results[it]);
         }
 
         fprintf(stdout, "\n");

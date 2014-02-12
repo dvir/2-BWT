@@ -926,8 +926,6 @@ FM::getLocations(SA_interval ivl, uint32_t* matches) {
       locate++;
       ++i;
   }
-  /* locations are in SA order */
-  std::sort(locations,locations+(*matches));
   return locations;
 }
 
