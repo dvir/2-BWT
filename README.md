@@ -1,3 +1,8 @@
+NOTE
+=====================================
+This is a 2-BWT implementation based on FM-Index, based on `High Throughput Short Read Alignment via Bi-directional BWT` (http://www.cs.bgu.ac.il/~dekelts/tsds14/Lam.pdf)
+
+
 FM-Index - Compressed full-text Index
 =====================================
 
@@ -6,7 +11,11 @@ which allows to build a full-text index over a given text `T` of size `n`
 supporting the following operations:
 
   * `count(P,m)`   : count the number of occurences of pattern `P`  of size `m` in `T`.
+  * `count1(P,m)`   : count the number of occurences of pattern `P`  of size `m` in `T` with exactly one error.
+  * `count2(P,m)`   : count the number of occurences of pattern `P`  of size `m` in `T` with exactly two errors.
   * `locate(P,m)`  : locate the text positions of all occurences of `P` of size `m` in `T`.
+  * `locate1(P,m)`  : locate the text positions of all occurences of `P` of size `m` in `T` with exactly one error.
+  * `locate2(P,m)`  : locate the text positions of all occurences of `P` of size `m` in `T` with exactly two errors.
   * `extract(A,B)` : extract `T[A,B]` from the index.
   * `recover()`    : recover `T` from the index.
   
@@ -31,7 +40,7 @@ Builds and writes the FM-Index `alice29.txt.fm`.
 
 ### Running count() queries
 
-	./fmcount -i alice29.txt.fm alice.qry
+	./fmcount -i alice29.txt.fm alice.qry [0-2]
 
 The queries are stored in a new line seperated file:
 
@@ -52,12 +61,12 @@ The index returns the **number of occurrences** for each query:
 	
 ### Running locate() queries
 
-	./fmlocate -i alice29.txt.fm alice.qry
+	./fmlocate -i alice29.txt.fm alice.qry [0-2]
 
 	
 The index returns a sorted list of the **locations of all occurences** for each query:
 
-	./fmlocate -i alice29.txt.fm alice.qry
+	./fmlocate -i alice29.txt.fm alice.qry 0
 	Read 3 queries
 	keep (11) : 46385 51125 69491 74680 81562 83046 104830 105180 133621 149966 151623
 	poison (3) : 8151 8619 8731
