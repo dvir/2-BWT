@@ -18,6 +18,7 @@
 #define	FM_H
 
 #include <stdarg.h>
+#include <vector>
 
 #include "util.h"
 
@@ -38,6 +39,13 @@ using namespace cds_static;
 #define DEFAULT_SAMPLERATE      64
 #define RRR_SAMPLERATE			20
 
+struct SA_interval {
+  uint32_t sp, ep;
+};
+struct SA_intervals {
+  SA_interval ivl, r_ivl;
+};
+
 class FM {
 public:
     FM(uint8_t* T,uint32_t n,uint32_t samplerate);
@@ -45,8 +53,16 @@ public:
     static FM* load(char* filename);
     int32_t save(char* filename);
     uint8_t* remap0(uint8_t* T,uint32_t n);
+    uint8_t* reverse(uint8_t* T,uint32_t n);
     uint32_t count(uint8_t* pattern,uint32_t m);
     uint32_t* locate(uint8_t* pattern,uint32_t m,uint32_t* matches);
+    std::vector<SA_intervals> locate1(uint8_t* pattern, uint32_t m);
+    std::vector<SA_intervals> locate2(uint8_t* pattern, uint32_t m);
+    uint32_t* getLocations(SA_interval ivl, uint32_t* matches);
+    SA_intervals updateForwardBackward(SA_intervals ivls, uint8_t c, WaveletTreeNoptrs* T);
+    SA_interval updateBackward(SA_interval ivl, uint8_t c, WaveletTreeNoptrs* T);
+    SA_intervals* backwardSearch(uint8_t* pattern, uint32_t s, uint32_t e, SA_intervals ivls);
+    SA_intervals* forwardSearch(uint8_t* pattern, uint32_t s, uint32_t e, SA_intervals ivls);
     uint32_t getSize();
     uint8_t* extract(uint32_t start,uint32_t stop);
     uint8_t* reconstructText(uint32_t* n);
@@ -77,6 +93,7 @@ private:
   uint32_t* positions;
   BitSequence* sampled;
   WaveletTreeNoptrs *T_bwt;
+  WaveletTreeNoptrs *T_bwt_reverse;
   Sequence *N;
   Sequence *M;
 };

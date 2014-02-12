@@ -19,6 +19,8 @@
 #include "divsufsort.h"
 
 #include <algorithm>
+#include <vector>
+#include <cmath>
 
 int FM::verbose = 0;
 
@@ -42,6 +44,7 @@ FM::FM() {
     this->I = 0;
     this->remap_reverse = NULL;
     this->T_bwt = NULL;
+    this->T_bwt_reverse = NULL;
     this->sampled = NULL;
     this->suffixes = NULL;
 }
@@ -51,6 +54,7 @@ FM::~FM() {
     free(suffixes);
 	free(positions);
     delete T_bwt;
+    delete T_bwt_reverse;
     delete sampled;
 }
 
@@ -69,6 +73,7 @@ FM::getSize() {
 	bytes += ((n/samplerate)+2) * sizeof(uint32_t); /* positions */
     bytes += this->sampled->getSize();
     bytes += this->T_bwt->getSize();
+    bytes += this->T_bwt_reverse->getSize();
     
     return bytes;
 }
@@ -77,6 +82,17 @@ float
 FM::getSizeN() {
     uint32_t bytes = getSize();
     return (float)(bytes)/(float)(n);
+}
+
+uint8_t*
+FM::reverse(uint8_t* X,uint32_t n) {
+  uint8_t* X_ = (uint8_t*) malloc(n * sizeof(uint8_t));
+  for (uint32_t i = 0; i < n-1; ++i) {
+    X_[n-2-i] = X[i];
+  }
+  X_[n-1] = X[n-1];
+
+  return X_;
 }
 
 uint8_t*
@@ -114,6 +130,9 @@ FM::build(uint8_t* T,uint32_t n,uint32_t samplerate) {
     uint8_t* X;
     uint8_t* X_bwt;
     int32_t* SA;
+    uint8_t* X_;
+    uint8_t* X_bwt_reverse;
+    int32_t* SA_;
     uint32_t i,prev,tmp,start,stop;
     float elapsed;
     
@@ -181,6 +200,31 @@ FM::build(uint8_t* T,uint32_t n,uint32_t samplerate) {
     BitSequenceBuilder * bsb = new BitSequenceBuilderRRR(RRR_SAMPLERATE);
     T_bwt = new WaveletTreeNoptrs((uint32_t*)X_bwt,n,sizeof(uint8_t)*8,bsb,map,true);
     
+    // create T_bwt_reverse
+    /* perform k-BWT */
+    info("- performing bwt (reverse).");
+    X_ = reverse(X, n);
+
+    SA_ = (int32_t*) safe_malloc( n * sizeof(int32_t)  );
+    if( divsufsort(X_,SA_,n) != 0 ) {
+        fatal("error divsufsort (reverse)");
+    }
+    
+    info("- creating bwt output (reverse).");
+    X_bwt_reverse = (uint8_t*) safe_malloc( n * sizeof(uint8_t)  );
+    for(i=0;i<n;i++) {
+        if(SA_[i]==0) { 
+            X_bwt_reverse[i] = X_[n-1];
+        } else X_bwt_reverse[i] = X_[SA_[i]-1];
+    }
+    free(SA_);
+    free(X_);
+    
+    info("- create RRR wavelet tree over bwt (reverse).");
+    MapperNone * map_ = new MapperNone();
+    BitSequenceBuilder * bsb_ = new BitSequenceBuilderRRR(RRR_SAMPLERATE);
+    T_bwt_reverse = new WaveletTreeNoptrs((uint32_t*)X_bwt_reverse,n,sizeof(uint8_t)*8,bsb_,map_,true);
+
     stop = gettime();
     elapsed = (float)(stop-start)/1000000;
     
@@ -201,6 +245,8 @@ FM::build(uint8_t* T,uint32_t n,uint32_t samplerate) {
     info("- Sampled: %d bytes (%.2f\%)",bytes,(float)bytes/getSize()*100);
     bytes = T_bwt->getSize();
     info("- T_bwt: %d bytes (%.2f\%)",bytes,(float)bytes/getSize()*100);
+    bytes = T_bwt_reverse->getSize();
+    info("- T_bwt_reverse: %d bytes (%.2f\%)",bytes,(float)bytes/getSize()*100);
 	info("input Size n = %lu bytes\n",this->n);
 	info("index Size = %lu bytes (%.2f n)",getSize(),getSizeN());
 }
@@ -223,6 +269,7 @@ FM::save(char* filename) {
         f.write(reinterpret_cast<char*>(suffixes),sizeof(uint32_t)*((n/samplerate)+1));
 		f.write(reinterpret_cast<char*>(positions),sizeof(uint32_t)*((n/samplerate)+2));
         T_bwt->save(f);
+        T_bwt_reverse->save(f);
         sampled->save(f);
         f.close();
     } else return 1;
@@ -251,6 +298,7 @@ FM::load(char* filename) {
         newIdx->positions = (uint32_t*) safe_malloc(sizeof(uint32_t)*((newIdx->n/newIdx->samplerate)+2));
         f.read(reinterpret_cast<char*>(newIdx->positions),sizeof(uint32_t)*((newIdx->n/newIdx->samplerate)+2));
         newIdx->T_bwt = WaveletTreeNoptrs::load(f);
+        newIdx->T_bwt_reverse = WaveletTreeNoptrs::load(f);
         newIdx->sampled = BitSequenceRRR::load(f);
         f.close();
         info("samplerate = %d",newIdx->samplerate);
@@ -286,6 +334,601 @@ FM::count(uint8_t* pattern,uint32_t m) {
     } else {
       return 0;
     }
+}
+
+inline static size_t Occ(uint8_t c, uint32_t range, WaveletTreeNoptrs* T) {
+  if (range == 4294967295) return 0;
+  if (range == 0) return 0;
+
+  size_t sz = T->rank(c, range);
+  return sz;
+}
+inline static size_t OccLT(uint8_t c, uint32_t range, WaveletTreeNoptrs* T) {
+  if (range == 4294967295) return 0;
+  if (range == 0) return 0;
+
+  size_t sum = 0;
+  for (uint8_t i = 0; i < c; ++i) {
+    sum += Occ(i, range, T);
+  }
+
+  return sum;
+}
+inline static SA_intervals reverseIntervals(SA_intervals ivls) {
+  return {ivls.r_ivl, ivls.ivl};
+}
+
+SA_intervals FM::updateForwardBackward(SA_intervals ivls, uint8_t c, WaveletTreeNoptrs* T) {
+    /*
+     * l' <- l' + OccLTf(a, u) - OccLTf(a, l - 1)
+     * u' <- l' + Occf(a, u) - Occf(a, l - 1) - 1
+     */
+    SA_interval ivl = ivls.ivl;
+    SA_interval r_ivl = ivls.r_ivl;
+    r_ivl.sp = r_ivl.sp + OccLT(c, ivl.ep, T) - OccLT(c, ivl.sp - 1, T);
+    r_ivl.ep = r_ivl.sp + Occ(c, ivl.ep, T) - Occ(c, ivl.sp - 1, T) - 1;
+    ivl = updateBackward(ivl, c, T);
+    return {ivl, r_ivl};
+}
+
+SA_interval FM::updateBackward(SA_interval ivl, uint8_t c, WaveletTreeNoptrs* T) {
+    /*
+     * l <- Cx(a) + Occx(a, l-1)
+     * u <- Cx(a) + Occx(a, u)-1
+     */
+    ivl.sp = C[c] + Occ(c, ivl.sp - 1, T);
+    ivl.ep = C[c] + Occ(c, ivl.ep, T) - 1;
+    return ivl;
+}
+
+SA_intervals* FM::backwardSearch(uint8_t* pattern, uint32_t s, uint32_t e, SA_intervals ivls) {
+    if (s > e) {
+      return new SA_intervals{ivls.ivl, ivls.r_ivl};
+    }
+
+    for (uint32_t i = e; 
+         ivls.ivl.sp <= ivls.ivl.ep 
+         && ivls.r_ivl.sp <= ivls.r_ivl.ep 
+         && i >= s
+         && i <= e; 
+         --i) {
+      ivls = updateForwardBackward(ivls, remap[pattern[i]], T_bwt);
+    }
+
+    if (ivls.ivl.sp > ivls.ivl.ep || ivls.r_ivl.sp > ivls.r_ivl.ep) {
+      return NULL;
+    }
+
+   return new SA_intervals{ivls.ivl, ivls.r_ivl};
+}
+
+SA_intervals* FM::forwardSearch(uint8_t* pattern, uint32_t s, uint32_t e, SA_intervals ivls) {
+    if (s > e) {
+      return new SA_intervals{ivls.ivl, ivls.r_ivl};
+    }
+
+    ivls = reverseIntervals(ivls);
+    for (uint32_t i = s; 
+         ivls.ivl.sp <= ivls.ivl.ep 
+         && ivls.r_ivl.sp <= ivls.r_ivl.ep 
+         && i >= s
+         && i <= e; 
+         ++i) {
+      ivls = updateForwardBackward(ivls, remap[pattern[i]], T_bwt_reverse);
+    }
+
+    if (ivls.ivl.sp > ivls.ivl.ep || ivls.r_ivl.sp > ivls.r_ivl.ep) {
+      return NULL;
+    }
+
+   return new SA_intervals{ivls.r_ivl, ivls.ivl};
+}
+
+std::vector<SA_intervals>
+FM::locate1(uint8_t* pattern, uint32_t m) {
+  uint8_t c;
+  std::vector<SA_intervals> matching_intervals;
+  SA_interval ivl, r_ivl;
+  SA_intervals ivls;
+
+  uint32_t middle = ceil(m/2);
+
+  /*
+   * Two possible cases for 1 error:
+   * str: abcdef
+   * - assume error is in first half.
+   *   - backward search def
+   *   - try all options for abc errors
+   * - assume error is in second half.
+   *   - forward search abc
+   *   - try all options for def errors
+   */
+  SA_intervals* res_ptr = NULL; 
+  SA_intervals res; 
+
+  c = remap[pattern[m-1]];
+  ivl = {C[c], C[c+1]-1};
+  r_ivl = ivl;
+  ivls = {ivl, r_ivl};
+
+  // backward search [middle + 1, m - 2]
+  // m-2 because we already searched for m-1
+  res_ptr = backwardSearch(pattern, middle + 1, m - 2, ivls); 
+  if (res_ptr) {
+    SA_intervals ivls_second_half = *res_ptr;
+
+    // choose a remaining character to be the one with the error
+    for (uint32_t i = middle; i >= 0 && i <= m - 1; --i) {
+      // backward search up until the character with the error
+      // so [i + 1, middle]
+      res_ptr = backwardSearch(pattern, i + 1, middle, ivls_second_half); 
+      if (!res_ptr) continue;
+      SA_intervals ivls_upto_error = *res_ptr;
+
+      // choose which character it should actually represent
+      for (uint32_t c = 1; c < sigma; ++c) {
+        if (c == remap[pattern[i]]) {
+          continue;
+        }
+
+        // search for the specific character we are trying
+        res = updateForwardBackward(ivls_upto_error, c, T_bwt);
+        if (res.ivl.sp > res.ivl.ep || res.r_ivl.sp > res.r_ivl.ep) {
+          continue;
+        }
+        SA_intervals ivls_with_correction = res;
+
+        // backward search the remaining of the pattern
+        // so [0, i - 1]
+        if (i == 0) {
+          // nothing to search for. we have a match!
+          matching_intervals.push_back(ivls_with_correction);
+        } else {
+          res_ptr = backwardSearch(pattern, 0, i - 1, ivls_with_correction); 
+          if (!res_ptr) continue;
+          SA_intervals ivls_full_fixed = *res_ptr;
+
+          // if we got here, we have a match!
+          matching_intervals.push_back(ivls_full_fixed);
+        }
+      }
+    }
+  }
+
+  /*
+   * - assume error is in second half.
+   *   - forward search abc
+   *   - try all options for def errors
+   */
+
+  c = remap[pattern[0]];
+  ivl = {C[c], C[c+1]-1};
+  r_ivl = ivl;
+  ivls = {ivl, r_ivl};
+
+  // forward search [1, middle]
+  res_ptr = forwardSearch(pattern, 1, middle, ivls); 
+  if (res_ptr) {
+    SA_intervals ivls_first_half = *res_ptr;
+
+    // choose a remaining character to be the one with the error
+    for (uint32_t i = middle + 1; i < m; ++i) {
+      // forward search up until the character with the error
+      // so [middle + 1, i - 1]
+      res_ptr = forwardSearch(pattern, middle + 1, i - 1, ivls_first_half); 
+      if (!res_ptr) continue;
+      SA_intervals ivls_upto_error = *res_ptr;
+
+      // choose which character it should actually represent
+      for (uint32_t c = 1; c < sigma; ++c) {
+        if (c == remap[pattern[i]]) {
+          continue;
+        }
+
+        // search for the specific character we are trying
+        res = updateForwardBackward(reverseIntervals(ivls_upto_error), c, T_bwt_reverse);
+        if (res.ivl.sp > res.ivl.ep || res.r_ivl.sp > res.r_ivl.ep) {
+          continue;
+        }
+        SA_intervals ivls_with_correction = reverseIntervals(res);
+        // forward search the remaining of the pattern
+        // so [i + 1, m - 1]
+        res_ptr = forwardSearch(pattern, i + 1, m - 1, ivls_with_correction); 
+        if (!res_ptr) continue;
+        SA_intervals ivls_full_fixed = *res_ptr;
+
+        // if we got here, we have a match!
+        matching_intervals.push_back(ivls_full_fixed);
+      }
+    }
+  }
+
+  return matching_intervals;
+}
+
+std::vector<SA_intervals>
+FM::locate2(uint8_t* pattern, uint32_t m) {
+  uint8_t c;
+  std::vector<SA_intervals> matching_intervals;
+  SA_interval ivl, r_ivl;
+  SA_intervals ivls;
+  SA_intervals* res_ptr = NULL; 
+  SA_intervals res; 
+
+  // split separators
+  // note: s1 and s2 are the beginning of their respective parts
+  uint32_t s1 = floor(m/3);
+  uint32_t s2 = m - s1;
+
+  /*
+   * Four possible cases for 2 error:
+   * str: abcdefghi
+   * 200
+   * 020
+   * 110
+   * A. assume errors are in the first two parts.
+   *   - backward search ghi
+   *   - try all options for abcdef with 2 errors
+   * 002
+   * B. assume both errors are in the last part.
+   *   - forward search abcdef
+   *   - try all options for ghi with 2 errors
+   * 011
+   * C. assume errors are in the second and third part respectively.
+   *   - forward search abc
+   *   - try all options for def with 1 error
+   *   - try all options for ghi with 1 error
+   * 101
+   * D. assume errors are in the first and last part respectively.
+   *   - forward search def
+   *   - try all options for abc with 1 errors (backward search)
+   *   - try all options for ghi with 1 errors (forward search)
+   */
+
+
+
+  /*
+   * 200
+   * 020
+   * 110
+   * A. assume errors are in the first two parts.
+   *   - backward search 'ghi'
+   *   - try all options for abcdef with 2 errors
+   */
+  c = remap[pattern[m-1]];
+  ivl = {C[c], C[c+1]-1};
+  r_ivl = ivl;
+  ivls = {ivl, r_ivl};
+
+  // backward search [s2, m - 1]
+  // m-2 because we already searched for m-1
+  res_ptr = backwardSearch(pattern, s2, m - 2, ivls); 
+  if (res_ptr) {
+    SA_intervals ivls_last_part = *res_ptr;
+
+    // choose a remaining character to be the one with the error
+    for (uint32_t i = s2 - 1; i >= 1 && i <= m - 1; --i) {
+      // backward search up until the character with the error
+      // so [i + 1, s2 - 1]
+      res_ptr = backwardSearch(pattern, i + 1, s2 - 1, ivls_last_part); 
+      if (!res_ptr) continue;
+      SA_intervals ivls_upto_i = *res_ptr;
+
+      // choose which character i should actually represent
+      for (uint32_t e1 = 1; e1 < sigma; ++e1) {
+        if (e1 == remap[pattern[i]]) {
+          continue;
+        }
+
+        // search for the specific character we are trying
+        res = updateForwardBackward(ivls_upto_i, e1, T_bwt);
+        if (res.ivl.sp > res.ivl.ep || res.r_ivl.sp > res.r_ivl.ep) {
+          continue;
+        }
+        SA_intervals ivls_with_correction_for_i = res;
+
+        for (uint32_t j = i - 1; j >= 0 && j <= m - 1; --j) {
+          // backward search up until the character with the -NEXT- error
+          // so [j + 1, i - 1]
+          res_ptr = backwardSearch(pattern, j + 1, i - 1, ivls_with_correction_for_i); 
+          if (!res_ptr) continue;
+          SA_intervals ivls_upto_j = *res_ptr;
+
+          // choose which character j should actually represent
+          for (uint32_t e2 = 1; e2 < sigma; ++e2) {
+            if (e2 == remap[pattern[j]]) {
+              continue;
+            }
+
+            // search for the specific character we are trying
+            res = updateForwardBackward(ivls_upto_j, e2, T_bwt);
+            if (res.ivl.sp > res.ivl.ep || res.r_ivl.sp > res.r_ivl.ep) {
+              continue;
+            }
+            SA_intervals ivls_with_correction_for_j = res;
+
+            // backward search the remaining of the pattern
+            // so [0, j - 1]
+            if (j == 0) {
+              // nothing to search for. we have a match!
+              matching_intervals.push_back(ivls_with_correction_for_j);
+            } else {
+              res_ptr = backwardSearch(pattern, 0, j - 1, ivls_with_correction_for_j); 
+              if (!res_ptr) continue;
+              SA_intervals ivls_full_fixed = *res_ptr;
+
+              // if we got here, we have a match!
+              matching_intervals.push_back(ivls_full_fixed);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /*
+   * 002
+   * B. assume both errors are in the last part.
+   *   - forward search abcdef
+   *   - try all options for ghi with 2 errors
+   */
+  c = remap[pattern[0]];
+  ivl = {C[c], C[c+1]-1};
+  r_ivl = ivl;
+  ivls = {ivl, r_ivl};
+
+  // forward search [1, s2 - 1]
+  // starting from 1 because we already searched for 0
+  res_ptr = forwardSearch(pattern, 1, s2 - 1, ivls); 
+  if (res_ptr) {
+    SA_intervals ivls_first_and_second = *res_ptr;
+
+    // choose a remaining character to be the one with the error
+    for (uint32_t i = s2; i <= m - 2; ++i) {
+      // forward search up until the character with the error
+      // so [s2, i - 1]
+      res_ptr = forwardSearch(pattern, s2, i - 1, ivls_first_and_second); 
+      if (!res_ptr) continue;
+      SA_intervals ivls_upto_i = *res_ptr;
+
+      // choose which character i should actually represent
+      for (uint32_t e1 = 1; e1 < sigma; ++e1) {
+        if (e1 == remap[pattern[i]]) {
+          continue;
+        }
+
+        // search for the specific character we are trying
+        res = updateForwardBackward(reverseIntervals(ivls_upto_i), e1, T_bwt_reverse);
+        if (res.ivl.sp > res.ivl.ep || res.r_ivl.sp > res.r_ivl.ep) {
+          continue;
+        }
+        SA_intervals ivls_with_correction_for_i = reverseIntervals(res);
+
+        for (uint32_t j = i + 1; j <= m - 1; ++j) {
+          // forward search up until the character with the -NEXT- error
+          // so [i + 1, j - 1]
+          res_ptr = forwardSearch(pattern, i + 1, j - 1, ivls_with_correction_for_i); 
+          if (!res_ptr) continue;
+          SA_intervals ivls_upto_j = *res_ptr;
+
+          // choose which character j should actually represent
+          for (uint32_t e2 = 1; e2 < sigma; ++e2) {
+            if (e2 == remap[pattern[j]]) {
+              continue;
+            }
+
+            // search for the specific character we are trying
+            res = updateForwardBackward(reverseIntervals(ivls_upto_j), e2, T_bwt_reverse);
+            if (res.ivl.sp > res.ivl.ep || res.r_ivl.sp > res.r_ivl.ep) {
+              continue;
+            }
+            SA_intervals ivls_with_correction_for_j = reverseIntervals(res);
+
+            // forward search the remaining of the pattern
+            // so [j + 1, m - 1]
+            res_ptr = forwardSearch(pattern, j + 1, m - 1, ivls_with_correction_for_j); 
+            if (!res_ptr) continue;
+            SA_intervals ivls_full_fixed = *res_ptr;
+
+            // if we got here, we have a match!
+            matching_intervals.push_back(ivls_full_fixed);
+          }
+        }
+      }
+    }
+  }
+
+  /*
+   * 011
+   * C. assume errors are in the second and third part respectively.
+   *   - forward search abc
+   *   - try all options for def with 1 error
+   *   - try all options for ghi with 1 error
+   */
+  c = remap[pattern[0]];
+  ivl = {C[c], C[c+1]-1};
+  r_ivl = ivl;
+  ivls = {ivl, r_ivl};
+
+  // forward search [1, s1 - 1]
+  // starting from 1 because we already searched for 0
+  res_ptr = forwardSearch(pattern, 1, s1 - 1, ivls); 
+  if (res_ptr) {
+    SA_intervals ivls_first = *res_ptr;
+
+    // choose a character in the second part to be the one with the error
+    for (uint32_t i = s1; i <= s2 - 1; ++i) {
+      // forward search up until the character with the error
+      // so [s1, i - 1]
+      res_ptr = forwardSearch(pattern, s1, i - 1, ivls_first); 
+      if (!res_ptr) continue;
+      SA_intervals ivls_upto_i = *res_ptr;
+
+      // choose which character i should actually represent
+      for (uint32_t e1 = 1; e1 < sigma; ++e1) {
+        if (e1 == remap[pattern[i]]) {
+          continue;
+        }
+
+        // search for the specific character we are trying
+        res = updateForwardBackward(reverseIntervals(ivls_upto_i), e1, T_bwt_reverse);
+        if (res.ivl.sp > res.ivl.ep || res.r_ivl.sp > res.r_ivl.ep) {
+          continue;
+        }
+        SA_intervals ivls_with_correction_for_i = reverseIntervals(res);
+
+        // forward search to the end of the second part 
+        // so [i + 1, s2 - 1]
+        res_ptr = forwardSearch(pattern, i + 1, s2 - 1, ivls_with_correction_for_i); 
+        if (!res_ptr) continue;
+        SA_intervals ivls_second = *res_ptr;
+
+        for (uint32_t j = s2; j <= m - 1; ++j) {
+          // forward search up until the character with the error
+          // so [s2, j - 1]
+          res_ptr = forwardSearch(pattern, s2, j - 1, ivls_second); 
+          if (!res_ptr) continue;
+          SA_intervals ivls_upto_j = *res_ptr;
+
+          // choose which character j should actually represent
+          for (uint32_t e2 = 1; e2 < sigma; ++e2) {
+            if (e2 == remap[pattern[j]]) {
+              continue;
+            }
+
+            // search for the specific character we are trying
+            res = updateForwardBackward(reverseIntervals(ivls_upto_j), e2, T_bwt_reverse);
+            if (res.ivl.sp > res.ivl.ep || res.r_ivl.sp > res.r_ivl.ep) {
+              continue;
+            }
+            SA_intervals ivls_with_correction_for_j = reverseIntervals(res);
+
+            // forward search to the end of the third part 
+            // so [j + 1, m - 1]
+            res_ptr = forwardSearch(pattern, j + 1, m - 1, ivls_with_correction_for_j); 
+            if (!res_ptr) continue;
+            SA_intervals ivls_full_fixed = *res_ptr;
+
+            // if we got here, we have a match!
+            matching_intervals.push_back(ivls_full_fixed);
+          }
+        }
+      }
+    }
+  }
+
+  /*
+   * 101
+   * D. assume errors are in the first and last part respectively.
+   *   - forward search def
+   *   - try all options for abc with 1 errors (backward search)
+   *   - try all options for ghi with 1 errors (forward search)
+   */
+  c = remap[pattern[s1]];
+  ivl = {C[c], C[c+1]-1};
+  r_ivl = ivl;
+  ivls = {ivl, r_ivl};
+
+  // forward search [s1 + 1, s2 - 1]
+  // starting from s1 + 1 because we already searched for s1
+  res_ptr = forwardSearch(pattern, s1 + 1, s2 - 1, ivls); 
+  if (res_ptr) {
+    SA_intervals ivls_second = *res_ptr;
+
+    // choose a character in the third part to be the one with the error
+    for (uint32_t i = s2; i <= m - 1; ++i) {
+      // forward search up until the character with the error
+      // so [s2, i - 1]
+      res_ptr = forwardSearch(pattern, s2, i - 1, ivls_second); 
+      if (!res_ptr) continue;
+      SA_intervals ivls_upto_i = *res_ptr;
+
+      // choose which character i should actually represent
+      for (uint32_t e1 = 1; e1 < sigma; ++e1) {
+        if (e1 == remap[pattern[i]]) {
+          continue;
+        }
+
+        // search for the specific character we are trying
+        res = updateForwardBackward(reverseIntervals(ivls_upto_i), e1, T_bwt_reverse);
+        if (res.ivl.sp > res.ivl.ep || res.r_ivl.sp > res.r_ivl.ep) {
+          continue;
+        }
+        SA_intervals ivls_with_correction_for_i = reverseIntervals(res);
+
+        // forward search to the end of the third part 
+        // so [i + 1, m - 1]
+        res_ptr = forwardSearch(pattern, i + 1, m - 1, ivls_with_correction_for_i); 
+        if (!res_ptr) continue;
+        SA_intervals ivls_second_and_third = *res_ptr;
+
+        // choose a character in the first part to be the one with the error
+        for (uint32_t j = s1 - 1; j >= 0 && j <= m - 1; --j) {
+          // backward search up until the character with the error
+          // so [j + 1, s1 - 1]
+          res_ptr = backwardSearch(pattern, j + 1, s1 - 1, ivls_second_and_third); 
+          if (!res_ptr) continue;
+          SA_intervals ivls_upto_j = *res_ptr;
+
+          // choose which character j should actually represent
+          for (uint32_t e2 = 1; e2 < sigma; ++e2) {
+            if (e2 == remap[pattern[j]]) {
+              continue;
+            }
+
+            // search for the specific character we are trying
+            // backward search
+            res = updateForwardBackward(ivls_upto_j, e2, T_bwt);
+            if (res.ivl.sp > res.ivl.ep || res.r_ivl.sp > res.r_ivl.ep) {
+              continue;
+            }
+            SA_intervals ivls_with_correction_for_j = res;
+
+            // backward search to the end of the first part 
+            // so [0, j - 1]
+            if (j == 0) {
+              // nothing to search for. we have a match!
+              matching_intervals.push_back(ivls_with_correction_for_j);
+            } else {
+              res_ptr = backwardSearch(pattern, 0, j - 1, ivls_with_correction_for_j); 
+              if (!res_ptr) continue;
+              SA_intervals ivls_full_fixed = *res_ptr;
+
+              // if we got here, we have a match!
+              matching_intervals.push_back(ivls_full_fixed);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return matching_intervals;
+}
+
+uint32_t*
+FM::getLocations(SA_interval ivl, uint32_t* matches) {
+  *matches = ivl.ep - ivl.sp + 1;
+  uint32_t* locations = (uint32_t*) safe_malloc((*matches)*sizeof(uint32_t));
+  uint32_t locate=0;
+  uint32_t i=ivl.sp;
+  int32_t j,dist,rank;
+  uint8_t c;
+  while (i<=ivl.ep) {
+      j=i,dist=0;
+      while (!sampled->access(j)) {
+          c = T_bwt->access(j);
+          rank = T_bwt->rank(c,j)-1;
+          j = C[c]+rank; // LF-mapping
+          ++dist;
+      }
+      locations[locate]=suffixes[sampled->rank1(j)-1]+dist;
+      locate++;
+      ++i;
+  }
+  /* locations are in SA order */
+  std::sort(locations,locations+(*matches));
+  return locations;
 }
 
 uint32_t*

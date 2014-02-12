@@ -1,0 +1,2 @@
+/home/dvir/Dropbox/Chai - Dvir/mini-project/FM-Index/libdivsufsort/lib/CMakeFiles/divsufsort.dir
+/home/dvir/Dropbox/Chai - Dvir/mini-project/FM-Index/libdivsufsort/CMakeFiles/uninstall.dir

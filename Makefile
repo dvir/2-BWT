@@ -1,7 +1,7 @@
 
 CCP=g++
-#CFLAGS=-g -W -Wall -O0 -DDEBUG
-CFLAGS=-W -Wall -O3
+CFLAGS=-g -W -Wall -O0 -DDEBUG
+#CFLAGS=-W -Wall -O3
 
 INCCDS=./libcds/includes/
 INCDIVSUF=./libdivsufsort/include/

@@ -39,7 +39,7 @@ print_usage(const char *program)
  * 
  */
 int main(int argc, char** argv) {
-    int32_t opt,nqrys,maxqry,i;
+    int32_t opt,nqrys,maxqry,i,errors = 0;
     char* idxname;char* qryname;
     FILE* f;
     FM* FMIdx;
@@ -73,6 +73,14 @@ int main(int argc, char** argv) {
 	if(optind < argc) { 
 		qryname = argv[optind];
 	}
+	/* read error count */
+  if(optind+1 < argc) { 
+    errors = atoi(argv[optind+1]);
+    if (errors < 0 || errors > 2) {
+      perror("unsupported match approximation level given");
+      exit(EXIT_FAILURE);
+    }
+  }
 	
 	if(qryname==NULL) {
 		print_usage(argv[0]);
@@ -106,8 +114,27 @@ int main(int argc, char** argv) {
 	
 	start = gettime();
 	for(i=0;i<nqrys;i++) {
-		cnt = FMIdx->count(queries[i],strlen((char*)queries[i]));
-		fprintf(stdout,"%s : %d\n",queries[i],cnt);
+    if (errors == 0) {
+      // search for exact pattern
+      cnt = FMIdx->count(queries[i],strlen((char*)queries[i]));
+    } else {
+      std::vector<SA_intervals> matching_intervals;
+      uint32_t matches;
+      switch(errors) {
+        case 1:
+          matching_intervals = FMIdx->locate1(queries[i],strlen((char*)queries[i]));
+          break;
+        case 2:
+          matching_intervals = FMIdx->locate2(queries[i],strlen((char*)queries[i]));
+          break;
+      }
+      cnt = 0;
+      for (size_t it = 0; it < matching_intervals.size(); ++it) {
+        SA_intervals ivls = matching_intervals[it];
+        cnt += ivls.ivl.ep - ivls.ivl.sp + 1;
+      }
+      fprintf(stdout,"%s : %d\n",queries[i],cnt);
+    }
 	}
 	stop = gettime();
 	FM::info("finished processing queries: %.3f sec",((float)(stop-start))/1000000);

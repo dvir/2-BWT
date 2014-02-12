@@ -39,7 +39,7 @@ print_usage(const char *program)
  * 
  */
 int main(int argc, char** argv) {
-    int32_t opt,nqrys,maxqry,i;
+    int32_t opt,nqrys,maxqry,i,errors = 0;
     char* idxname;char* qryname;
     FILE* f;
     FM* FMIdx;
@@ -74,6 +74,14 @@ int main(int argc, char** argv) {
 	if(optind < argc) { 
 		qryname = argv[optind];
 	}
+	/* read error count */
+  if(optind+1 < argc) { 
+    errors = atoi(argv[optind+1]);
+    if (errors < 0 || errors > 2) {
+      perror("unsupported match approximation level given");
+      exit(EXIT_FAILURE);
+    }
+  }
 	
 	if(qryname==NULL) {
 		print_usage(argv[0]);
@@ -106,11 +114,48 @@ int main(int argc, char** argv) {
 	
 	start = gettime();
 	for(i=0;i<nqrys;i++) {
-		result = FMIdx->locate(queries[i],strlen((char*)queries[i]),&matches);
-		fprintf(stdout,"%s (%d) : ",queries[i],matches);
-		for(j=0;j<matches-1;j++) fprintf(stdout,"%d ",result[j]);
-		fprintf(stdout,"%d\n",result[matches-1]);
-		free(result);
+    if (errors == 0) {
+      // search for exact pattern
+      result = FMIdx->locate(queries[i],strlen((char*)queries[i]),&matches);
+      fprintf(stdout,"%s (%d) : ",queries[i],matches);
+      if (matches) {
+        for(j=0;j<matches-1;j++) fprintf(stdout,"%d ",result[j]);
+        fprintf(stdout,"%d\n",result[matches-1]);
+      }
+      free(result);
+    } else {
+      std::vector<SA_intervals> matching_intervals;
+      switch(errors) {
+        case 1:
+          matching_intervals = FMIdx->locate1(queries[i],strlen((char*)queries[i]));
+          break;
+        case 2:
+          matching_intervals = FMIdx->locate2(queries[i],strlen((char*)queries[i]));
+          break;
+      }
+
+      for(size_t q = 0; q < nqrys; q++) {	
+        size_t results_amount = 0;
+        for (size_t it = 0; it < matching_intervals.size(); ++it) {
+          SA_intervals ivls = matching_intervals[it];
+          result = FMIdx->getLocations(ivls.ivl, &matches);
+          results_amount += matches;
+        }
+
+        fprintf(stdout,"%s (%d) : ", queries[i], results_amount);
+
+        for (size_t it = 0; it < matching_intervals.size(); ++it) {
+          SA_intervals ivls = matching_intervals[it];
+
+          result = FMIdx->getLocations(ivls.ivl, &matches);
+          if (matches) {
+            for(j=0;j<matches;j++) fprintf(stdout,"%d ",result[j]);
+          }
+        }
+
+        fprintf(stdout, "\n");
+      }
+    }
 	}
 	stop = gettime();
 	FM::info("finished processing queries: %.3f sec",((float)(stop-start))/1000000);

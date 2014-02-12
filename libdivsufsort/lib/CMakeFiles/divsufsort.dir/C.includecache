@@ -1,0 +1,58 @@
+#IncludeRegexLine: ^[ 	]*#[ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/dvir/Dropbox/Chai - Dvir/mini-project/FM-Index/libdivsufsort/lib/divsufsort.c
+divsufsort_private.h
+/home/dvir/Dropbox/Chai - Dvir/mini-project/FM-Index/libdivsufsort/lib/divsufsort_private.h
+omp.h
+-
+
+/home/dvir/Dropbox/Chai - Dvir/mini-project/FM-Index/libdivsufsort/lib/sssort.c
+divsufsort_private.h
+/home/dvir/Dropbox/Chai - Dvir/mini-project/FM-Index/libdivsufsort/lib/divsufsort_private.h
+
+/home/dvir/Dropbox/Chai - Dvir/mini-project/FM-Index/libdivsufsort/lib/trsort.c
+divsufsort_private.h
+/home/dvir/Dropbox/Chai - Dvir/mini-project/FM-Index/libdivsufsort/lib/divsufsort_private.h
+
+/home/dvir/Dropbox/Chai - Dvir/mini-project/FM-Index/libdivsufsort/lib/utils.c
+divsufsort_private.h
+/home/dvir/Dropbox/Chai - Dvir/mini-project/FM-Index/libdivsufsort/lib/divsufsort_private.h
+
+lib/../include/config.h
+
+lib/../include/divsufsort.h
+inttypes.h
+-
+
+lib/../include/divsufsort_private.h
+config.h
+lib/../include/config.h
+assert.h
+-
+stdio.h
+-
+string.h
+-
+stdlib.h
+-
+memory.h
+-
+stddef.h
+-
+strings.h
+-
+inttypes.h
+-
+stdint.h
+-
+divsufsort64.h
+lib/../include/divsufsort64.h
+divsufsort.h
+lib/../include/divsufsort.h
+
