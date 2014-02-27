@@ -355,7 +355,8 @@ inline static size_t OccLT(uint8_t c, uint32_t range, WaveletTreeNoptrs* T) {
   return sum;
 }
 inline static SA_intervals reverseIntervals(SA_intervals ivls) {
-  return {ivls.r_ivl, ivls.ivl};
+  SA_intervals r_intervals(ivls.r_ivl, ivls.ivl);
+  return r_intervals;
 }
 
 SA_intervals FM::updateForwardBackward(SA_intervals ivls, uint8_t c, WaveletTreeNoptrs* T) {
@@ -368,7 +369,8 @@ SA_intervals FM::updateForwardBackward(SA_intervals ivls, uint8_t c, WaveletTree
     r_ivl.sp = r_ivl.sp + OccLT(c, ivl.ep, T) - OccLT(c, ivl.sp - 1, T);
     r_ivl.ep = r_ivl.sp + Occ(c, ivl.ep, T) - Occ(c, ivl.sp - 1, T) - 1;
     ivl = updateBackward(ivl, c, T);
-    return {ivl, r_ivl};
+    SA_intervals result(ivl, r_ivl);
+    return result;
 }
 
 SA_interval FM::updateBackward(SA_interval ivl, uint8_t c, WaveletTreeNoptrs* T) {
@@ -383,7 +385,7 @@ SA_interval FM::updateBackward(SA_interval ivl, uint8_t c, WaveletTreeNoptrs* T)
 
 SA_intervals* FM::backwardSearch(uint8_t* pattern, uint32_t s, uint32_t e, SA_intervals ivls) {
     if (s > e) {
-      return new SA_intervals{ivls.ivl, ivls.r_ivl};
+      return new SA_intervals(ivls.ivl, ivls.r_ivl);
     }
 
     for (uint32_t i = e; 
@@ -399,12 +401,12 @@ SA_intervals* FM::backwardSearch(uint8_t* pattern, uint32_t s, uint32_t e, SA_in
       return NULL;
     }
 
-   return new SA_intervals{ivls.ivl, ivls.r_ivl};
+   return new SA_intervals(ivls.ivl, ivls.r_ivl);
 }
 
 SA_intervals* FM::forwardSearch(uint8_t* pattern, uint32_t s, uint32_t e, SA_intervals ivls) {
     if (s > e) {
-      return new SA_intervals{ivls.ivl, ivls.r_ivl};
+      return new SA_intervals(ivls.ivl, ivls.r_ivl);
     }
 
     ivls = reverseIntervals(ivls);
@@ -421,7 +423,7 @@ SA_intervals* FM::forwardSearch(uint8_t* pattern, uint32_t s, uint32_t e, SA_int
       return NULL;
     }
 
-   return new SA_intervals{ivls.r_ivl, ivls.ivl};
+   return new SA_intervals(ivls.r_ivl, ivls.ivl);
 }
 
 std::vector<SA_intervals>
@@ -447,9 +449,9 @@ FM::locate1(uint8_t* pattern, uint32_t m) {
   SA_intervals res; 
 
   c = remap[pattern[m-1]];
-  ivl = {C[c], C[c+1]-1};
+  ivl.setRange(C[c], C[c+1]-1);
   r_ivl = ivl;
-  ivls = {ivl, r_ivl};
+  ivls.setIvls(ivl, r_ivl);
 
   // backward search [middle + 1, m - 2]
   // m-2 because we already searched for m-1
@@ -458,7 +460,7 @@ FM::locate1(uint8_t* pattern, uint32_t m) {
     SA_intervals ivls_second_half = *res_ptr;
 
     // choose a remaining character to be the one with the error
-    for (uint32_t i = middle; i >= 0 && i <= m - 1; --i) {
+    for (uint32_t i = middle; i <= m - 1; --i) {
       // backward search up until the character with the error
       // so [i + 1, middle]
       res_ptr = backwardSearch(pattern, i + 1, middle, ivls_second_half); 
@@ -502,9 +504,9 @@ FM::locate1(uint8_t* pattern, uint32_t m) {
    */
 
   c = remap[pattern[0]];
-  ivl = {C[c], C[c+1]-1};
+  ivl.setRange(C[c], C[c+1]-1);
   r_ivl = ivl;
-  ivls = {ivl, r_ivl};
+  ivls.setIvls(ivl, r_ivl);
 
   // forward search [1, middle]
   res_ptr = forwardSearch(pattern, 1, middle, ivls); 
@@ -596,9 +598,9 @@ FM::locate2(uint8_t* pattern, uint32_t m) {
    *   - try all options for abcdef with 2 errors
    */
   c = remap[pattern[m-1]];
-  ivl = {C[c], C[c+1]-1};
+  ivl.setRange(C[c], C[c+1]-1);
   r_ivl = ivl;
-  ivls = {ivl, r_ivl};
+  ivls.setIvls(ivl, r_ivl);
 
   // backward search [s2, m - 1]
   // m-2 because we already searched for m-1
@@ -627,7 +629,7 @@ FM::locate2(uint8_t* pattern, uint32_t m) {
         }
         SA_intervals ivls_with_correction_for_i = res;
 
-        for (uint32_t j = i - 1; j >= 0 && j <= m - 1; --j) {
+        for (uint32_t j = i - 1; j <= m - 1; --j) {
           // backward search up until the character with the -NEXT- error
           // so [j + 1, i - 1]
           res_ptr = backwardSearch(pattern, j + 1, i - 1, ivls_with_correction_for_i); 
@@ -673,9 +675,9 @@ FM::locate2(uint8_t* pattern, uint32_t m) {
    *   - try all options for ghi with 2 errors
    */
   c = remap[pattern[0]];
-  ivl = {C[c], C[c+1]-1};
+  ivl.setRange(C[c], C[c+1]-1);
   r_ivl = ivl;
-  ivls = {ivl, r_ivl};
+  ivls.setIvls(ivl, r_ivl);
 
   // forward search [1, s2 - 1]
   // starting from 1 because we already searched for 0
@@ -746,9 +748,9 @@ FM::locate2(uint8_t* pattern, uint32_t m) {
    *   - try all options for ghi with 1 error
    */
   c = remap[pattern[0]];
-  ivl = {C[c], C[c+1]-1};
+  ivl.setRange(C[c], C[c+1]-1);
   r_ivl = ivl;
-  ivls = {ivl, r_ivl};
+  ivls.setIvls(ivl, r_ivl);
 
   // forward search [1, s1 - 1]
   // starting from 1 because we already searched for 0
@@ -825,9 +827,9 @@ FM::locate2(uint8_t* pattern, uint32_t m) {
    *   - try all options for ghi with 1 errors (forward search)
    */
   c = remap[pattern[s1]];
-  ivl = {C[c], C[c+1]-1};
+  ivl.setRange(C[c], C[c+1]-1);
   r_ivl = ivl;
-  ivls = {ivl, r_ivl};
+  ivls.setIvls(ivl, r_ivl);
 
   // forward search [s1 + 1, s2 - 1]
   // starting from s1 + 1 because we already searched for s1
@@ -863,7 +865,7 @@ FM::locate2(uint8_t* pattern, uint32_t m) {
         SA_intervals ivls_second_and_third = *res_ptr;
 
         // choose a character in the first part to be the one with the error
-        for (uint32_t j = s1 - 1; j >= 0 && j <= m - 1; --j) {
+        for (uint32_t j = s1 - 1; j <= m - 1; --j) {
           // backward search up until the character with the error
           // so [j + 1, s1 - 1]
           res_ptr = backwardSearch(pattern, j + 1, s1 - 1, ivls_second_and_third); 

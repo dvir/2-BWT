@@ -136,7 +136,7 @@ int main(int argc, char** argv) {
           break;
       }
 
-      for(size_t q = 0; q < nqrys; q++) {	
+      for(int32_t q = 0; q < nqrys; q++) {	
         std::vector<uint32_t> results;
 
         for (size_t it = 0; it < matching_intervals.size(); ++it) {
@@ -152,7 +152,7 @@ int main(int argc, char** argv) {
 
         std::sort(results.begin(), results.end());
 
-        fprintf(stdout,"%s (%d) : ", queries[i], results.size());
+        fprintf(stdout,"%s (%lu) : ", queries[i], results.size());
 
         for (size_t it = 0; it < results.size(); ++it) {
           fprintf(stdout, "%d ", results[it]);

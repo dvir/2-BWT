@@ -41,9 +41,21 @@ using namespace cds_static;
 
 struct SA_interval {
   uint32_t sp, ep;
+
+  void setRange(uint32_t sp, uint32_t ep) {
+    this->sp = sp;
+    this->ep = ep;
+  }
 };
 struct SA_intervals {
   SA_interval ivl, r_ivl;
+
+  SA_intervals(): ivl(), r_ivl() {}
+  SA_intervals(SA_interval ivl, SA_interval r_ivl): ivl(ivl), r_ivl(r_ivl) {}
+  void setIvls(SA_interval ivl, SA_interval r_ivl) {
+    this->ivl = ivl;
+    this->r_ivl = r_ivl;
+  }
 };
 
 class FM {

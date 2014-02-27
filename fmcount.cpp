@@ -119,7 +119,6 @@ int main(int argc, char** argv) {
       cnt = FMIdx->count(queries[i],strlen((char*)queries[i]));
     } else {
       std::vector<SA_intervals> matching_intervals;
-      uint32_t matches;
       switch(errors) {
         case 1:
           matching_intervals = FMIdx->locate1(queries[i],strlen((char*)queries[i]));
@@ -133,8 +132,9 @@ int main(int argc, char** argv) {
         SA_intervals ivls = matching_intervals[it];
         cnt += ivls.ivl.ep - ivls.ivl.sp + 1;
       }
-      fprintf(stdout,"%s : %d\n",queries[i],cnt);
     }
+
+    fprintf(stdout,"%s : %d\n",queries[i],cnt);
 	}
 	stop = gettime();
 	FM::info("finished processing queries: %.3f sec",((float)(stop-start))/1000000);
